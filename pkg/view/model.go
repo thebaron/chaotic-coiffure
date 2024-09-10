@@ -2,13 +2,14 @@ package view
 
 import (
 	"github.com/charmbracelet/bubbles/spinner"
-	sonic "github.com/delucks/go-subsonic"
+	"github.com/thebaron/chaotic-coiffure/pkg/client"
 )
 
 type model struct {
-	sonic    *sonic.Client
-	spinner  spinner.Model
-	quitting bool
-	err      error
-	msg      string
+	spinner   spinner.Model
+	quitting  bool
+	err       error
+	msg       string
+	client    *client.Client
+	clientsub chan client.Update
 }

@@ -2,13 +2,12 @@ package view
 
 import (
 	"fmt"
-	"net/http"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	sonic "github.com/delucks/go-subsonic"
+	"github.com/thebaron/chaotic-coiffure/pkg/client"
 	"github.com/thebaron/chaotic-coiffure/pkg/config"
 )
 
@@ -19,32 +18,32 @@ var quitKeys = key.NewBinding(
 	key.WithHelp("", "press q to quit"),
 )
 
+// A command that waits for the activity on a channel.
+func waitForActivity(m model) tea.Cmd {
+	return func() tea.Msg {
+		var ret client.Update = <-m.clientsub
+		m.msg = ret.Msg
+		return ret
+	}
+}
+
 func InitialModel(c config.Config) model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 
-	client := sonic.Client{
-		Client:     &http.Client{},
-		BaseUrl:    fmt.Sprintf("https://%s/", c.Server.Host),
-		User:       c.Server.User,
-		ClientName: "chaotic-coiffure",
-	}
-	err := client.Authenticate(c.Server.Password)
-	if err != nil {
-		return model{err: errMsg(err)}
-	}
+	m := model{spinner: s, msg: "starting up", clientsub: make(chan client.Update)}
+	m.client = client.NewClient(c, m.clientsub)
 
-	pls, err := client.GetPlaylists(nil)
-	if err != nil {
-		return model{err: errMsg(err)}
-	}
-	msg := pls[0].Name
-	return model{spinner: s, sonic: &client, msg: msg}
+	return m
 }
 
 func (m model) Init() tea.Cmd {
-	return m.spinner.Tick
+	return tea.Batch(
+		m.spinner.Tick,
+		waitForActivity(m), // wait for activity
+		m.client.Launch(),
+	)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -60,6 +59,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case errMsg:
 		m.err = msg
 		return m, nil
+
+	case client.QuitMessage:
+		m.quitting = true
+		return m, nil
+
+	case client.Update:
+		m.spinner, _ = m.spinner.Update(msg)
+		return m, waitForActivity(m) // wait for next event
 
 	default:
 		var cmd tea.Cmd
